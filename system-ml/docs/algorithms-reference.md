@@ -28,3 +28,6 @@ displayTitle: SystemML Algorithms Reference
   
 * [Matrix Factorization](algorithms-matrix-factorization.html)
   * [Principle Component Analysis](algorithms-matrix-factorization.html#principle-component-analysis)
+
+* [Interpolation](algorithms-interpolation.html)
+  * [Cubic Spline Interpolation](algorithms-interpolation.html#cubic-spline)
