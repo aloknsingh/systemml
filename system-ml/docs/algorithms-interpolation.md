@@ -14,7 +14,7 @@ displayTitle: <a href="algorithms-reference.html">SystemML Algorithms Reference<
 #### Summary
 Cubic Spline interpolation is similar to polynomial interpolation. 
 The difference: instead of fitting all the data with the a single polynomial,
-we fit the data using the many polynomialm introducing a new polynomial between all ajacent data points; i.e., the number of polynomial required to interpolate a given discretized domain with N+1 grid points (knots). 
+we fit the data using the many polynomial introducing a new polynomial between all adjacent data points; i.e., the number of polynomial required to interpolate a given discretized domain with N+1 grid points (knots). 
 
 #### Practical usages
 Originally, spline was a term for elastic rules that were bent to pass through a number of predefined points ("knots"). These were used to make technical drawings for shipbuilding and construction by hand. Now a days it is used in interpolation in adobe photoshop and rendering characters in scalable ways. From the big data perspective, it can be used to model the time series data.
@@ -22,7 +22,7 @@ Originally, spline was a term for elastic rules that were bent to pass through a
 #### Details
 We have implemented the natural splines. we will approach to mathematically model 
 the shape of such elastic rulers fixed by n + 1 knots 
-{$\{( $x_i, $y_i ) \: i = 0,1, ...,n   \}$} is to interpolate between all the pairs of knots $(x_{i-1}, y_{i-1})$ and $(x_{i}, y_{i})$ with polynomials $y = q_i(x),i=1,2,...,n.$
+{$\{( x_i, y_i ) \: i = 0,1, ...,n   \}$} is to interpolate between all the pairs of knots $(x_{i-1}, y_{i-1})$ and $(x_{i}, y_{i})$ with polynomials $y = q_i(x),i=1,2,...,n.$
 
 This can only be achieved if polynomials of degree 3 or higher are used. The classical approach is to use polynomials of degree 3 - the case of cubic splines
 
@@ -152,13 +152,13 @@ $$
 
 We have two implementation for solving $\mathbf A \vec k = \vec b $, direct solver and using conjugate gradient descent (it can scale to bigger size matrices n > 5000)
 
-Once we have the $\vec k$, we can compute, the interpolated response y, given the input x, by first finding the interval knots intervals in which x belongs and then using the appropriate $k_{i}$s and equation (1) above.
+Once we have the $\vec k$, we can compute, the interpolated response y, given the input x, by first finding the knots interval in which x belongs and then using the appropriate $k_{i}$s and equation (1) above.
 
 ### Usage and Userguide
 
 There are two scripts in our library, both doing the same estimation,
 but using different computational methods. Depending on the size and the
-sparsity of the feature matrix $X$, one or the other script may be more
+sparsity of the feature matrix $A$, one or the other script may be more
 efficient. The “direct solve” script `CsplineDS.dml` is more
 efficient when the number of features $m$ is relatively small
 ($m \sim 1000$ or less) and matrix $X$ is either tall or fairly dense
@@ -166,16 +166,24 @@ efficient when the number of features $m$ is relatively small
 `CSplineCG.dml` is more efficient. If $m > 50000$, use only
 `CSplineCG.dml`.
 
+#### Assumptions
 
-### Usage
+ * The inputs $X$s are monotonically increasing,
+ * there is no duplicates points in $X$
+ * the input for which the prediction is sought is between the given $X$s i.e we will do interpolations only and no extrapolation will be done
+
+
+#### Usage
 
 Cubic Spline interpolation - Direct Solve
 
     hadoop jar SystemML.jar -f CsplineDS.dml
                             -nvargs X=file
                                     Y=file
+                                    K=file
                                     O=file
                                     fmt=format
+                                    inp_x=double
 
 
 Cubic Spline interpolation - Conjugate Gradient
@@ -183,25 +191,31 @@ Cubic Spline interpolation - Conjugate Gradient
     hadoop jar SystemML.jar -f CSplineCG.dml
                             -nvargs X=file
                                     Y=file
+                                    K=file
                                     O=file
                                     Log=file
                                     tol=double
                                     maxi=int
                                     fmt=format
+                                    inp_x=double
 
 
-### Arguments
+#### Arguments
 
 **X**: Location (on HDFS) to read the 1-column matrix of x values knots
 
 **Y**: Location (on HDFS) to read the 1-column matrix of corresponding y values knots
 
-**O**: (default: `" "`) Location to store the $k_{i}$ -file for the calculated k vectors. the default is to print it to the standard output
+**K**: (default: `" "`) Location to store the $k_{i}$ -file for the calculated k vectors. the default is to print it to the standard output
+
+**O**: (default: `" "`) Location to store the output predicted y the default is to print it to the standard output
 
 **Log**: (default: `" "`, `CsplineCG.dml` only) Location to store
 iteration-specific variables for monitoring and debugging purposes, see
 [**Table 5.1.1**](systemml-algorithms-interpolations.html#table5_1_1)
 for details.
+
+**inp_x**: The given input x, for which the cspline will find predicted y.
 
 **tol**: (default: 0.000001, `CsplineCG.dml` only) Tolerance $\varepsilon\geq 0$ used in the
 convergence criterion: we terminate conjugate gradient iterations when
@@ -215,27 +229,31 @@ gradient iterations, or 0 if no maximum limit provided
 SystemML Language Reference for details.
 
 
-### Examples
+#### Examples
 
-Linear Regression - Direct Solve
+Cubic Spline Interpolation - Direct Solve
 
     hadoop jar SystemML.jar -f CsplineDS.dml
                             -nvargs X=/user/ml/X.mtx 
                                     Y=/user/ml/Y.mtx 
+                                    K=/user/ml/K.csv 
+                                    O=/user/ml/pred_y.mtx
                                     fmt=csv 
-                                    O=/user/ml/stats.csv 
+                                    inp_x=4.5
                                     
 
-Linear Regression - Conjugate Gradient
+Cubic Spline Interpolation - Conjugate Gradient
 
     hadoop jar SystemML.jar -f CsplineCG.dml
                             -nvargs X=/user/ml/X.mtx 
                                     Y=/user/ml/Y.mtx 
+                                    K=/user/ml/K.csv 
+                                    O=/user/ml/pred_y.mtx
                                     fmt=csv 
-                                    O=/user/ml/stats.csv 
                                     tol=0.00000001 
                                     maxi=100 
                                     Log=/user/ml/log.csv
+                                    inp_x=4.5
 
 
 
@@ -256,11 +274,11 @@ for initial values.
 * * * 
 
 
-### Returns
+#### Returns
 
-The estimated $\vec k$ from (eq 4) populated into a matrix and written to an HDFS file whose path/name was provided as the `O` input argument. 
+The estimated $\vec k$ from (eq 4) populated into a matrix and written to an HDFS file whose path/name was provided as the `K` input argument. 
 
-The estimated y for the given x is printed in stdout which can be modified to write to HDFS
+The estimated y for the given x is written to a HDFS file whose path/name was provided as the `O` input argument.The default is to print to stdout
 
 For conjugate gradient iterations, a log file with monitoring variables
 can also be made available, see [**Table 5.1.1**](systemml-algorithms-interpolations.html#table5_1_1) for details.
