@@ -20,8 +20,11 @@ language: java
 ## SystemML has Test dependency on R-package
 before_install:
      - sudo apt-get update -qq
-     - sudo apt-get install -y r-base r-base-dev
-     - sh system-ml/src/test/scripts/installDependencies.R
+     - sudo apt-get install -y r-base
+     - sudo apt-get install -y r-base-dev
+     - r --version
+     - chmod u+x system-ml/src/test/scripts/installDependencies.R
+     - ./system-ml/src/test/scripts/installDependencies.R
 ## Compile and Install
 install: mvn clean install -DskipTests=true
 ## Run Integration tests
