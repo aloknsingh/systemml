@@ -23,9 +23,8 @@ before_install:
      - sudo apt-get install -y r-base
      - sudo apt-get install -y r-base-dev
      - export PATH=/usr/bin:$PATH
-     - r --version
-     - chmod u+x system-ml/src/test/scripts/installDependencies.R
-     - ./system-ml/src/test/scripts/installDependencies.R
+     - /usr/bin/R --version
+     - /usr/bin/Rscript ./system-ml/src/test/scripts/installDependencies.R
 ## Compile and Install
 install: mvn clean install -DskipTests=true
 ## Run Integration tests
