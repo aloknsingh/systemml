@@ -100,6 +100,18 @@
 #    
 #  
 
+#@NOTE:We follow the following convention to point out the important things.
+#  @NOTE: This is the point user/reviewer/develper has to look
+#  @TODO: to do in the later or future
+#  @TBD: to be decided 
+#  @ref: reference to technical paper or code
+#  @description: mostly the desciption of the func
+#  @input: input description of function
+#  @output: output description of function
+#  @assumption: the underlying assumption in the block of code
+#  
+
+
 #@TODO: why parfor having pb for more than 1 doc? discuss with Matthias
 #@TODO: How do we set init seed for random number gen?
 #@TODO:make run method to run the top converging iteration
