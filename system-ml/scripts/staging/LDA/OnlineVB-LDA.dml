@@ -131,6 +131,112 @@ main = function() return() {
   print("Ending topic modelling")
 }
 
+#for debug
+#@description: This is just here for smoketest and some accuracy testing whose value has been manually verified against the 
+#              author's implementation for accuracy. 
+#              Actual test will be in R/python/java 
+#@TODO: add more cases and 
+#
+smoketest_online_VB_LDA = function() return () {
+  print("Starting Topic modelling...")    
+  debug = debug()  
+  W = 5 # num of words in the vocab
+  K = 2 # num of topics
+  #D = 1 # total number of documents
+  D = 2 # total number of documents
+
+  isOnline = 0
+  alpha = 1.0/K
+  eta = 1.0/K  # usually 1/K
+  tau0 = 1024
+  tau0 = tau0 + 1 # case when the user passes in 0
+  kappa =  0.7 # must be [0.5, 1) 
+  Log = ifdef($Log, " ")
+
+  updatect = 0
+  varIterMax = 1
+
+
+  # for testing 
+  #case 1
+  if (TRUE) { # if block gives a nicer code org. 
+    print("Begin Smoke Test 1 ...")
+    D = 1
+    batchDocsWordIds = matrix("1 2 3 4 5", rows=1, cols=5)
+    batchDocsWordCts = matrix("6 2 2 3 4", rows=1, cols=5)
+    varBatchSize = 1
+    # init the variation distribution q(theta|gamma)
+    Gamma =  matrix("0.93880941 0.8567902", rows=1, cols=K) #ALOK_DEBUG
+  
+    #Init the variational distribution q(beta|lambda) # get or read the Lambda
+    Lambda = matrix("0.96307558 1.05341124 0.91342724 0.9911178 1.09593632 1.1080743 0.90388002 0.99404929 0.83463754 0.97659028", rows=2, cols=5)
+    [updatedGamma, updatedLambda, newUpdateCnt] = online_VB_LDA(
+                                      isOnline,
+                                      batchDocsWordIds, batchDocsWordCts,
+                                      Gamma, Lambda,
+                                      varBatchSize,
+                                      varIterMax,
+                                      W, K, D, 
+                                      alpha, eta, tau0, kappa, updatect
+                                    )
+
+    ignore=printm("M_updatedLambda", updatedLambda)
+    expectedUpdatedLambda = matrix("0.9712565299980254 1.0545998394749134 0.9143870969911314 0.9957686080384052 1.1018217659662055 1.1383736904958452 0.9108320185092539 1.0016189427524405 0.8469614162787922 0.9935600985429838", 
+                             rows=2, cols=5)
+    ignore=printm("M_expectedUpdatedLambda", expectedUpdatedLambda)
+    isequal = mequals(expectedUpdatedLambda, updatedLambda)
+    if (isequal == 1) {
+      print("**INFO** => Smoke test 1 passed")
+    }  else {
+      stop("**FATAL** => Smoke test 1 failed")
+    }
+    print("__________________________________")
+  }
+
+  #batchDocsIds = matrix("1 2 3 4 5 1 2 3 4 5", rows=2, cols=5)
+  #batchDocsCts = matrix("6 2 2 3 4 2 3 6 4 3", rows=2, cols=5)
+
+  #case 2
+  
+  if (TRUE) {
+    print("Begin Smoke Test 2 ...")
+    D = 2
+    batchDocsWordIds = matrix("1 2 3 4 5 1 2 3 4 5", rows=2, cols=5)
+    batchDocsWordCts = matrix("6 2 2 3 4 0 0 6 0 2", rows=2, cols=5)
+    varBatchSize = 2
+    # init the variation distribution q(theta|gamma)
+    #Gamma =  matrix("0.93880941 0.8567902", rows=1, cols=K) #ALOK_DEBUG
+    Gamma =  matrix("0.93880941 0.8567902 1.11048865 0.97495979", rows=2, cols=K) #ALOK_DEBUG
+  
+    #Init the variational distribution q(beta|lambda) # get or read the Lambda
+    Lambda = matrix("0.96307558 1.05341124 0.91342724 0.9911178 1.09593632 1.1080743 0.90388002 0.99404929 0.83463754 0.97659028", rows=2, cols=5)
+  
+    [updatedGamma, updatedLambda, newUpdateCnt] = online_VB_LDA(
+                                     isOnline,
+                                     batchDocsWordIds, batchDocsWordCts,
+                                     Gamma, Lambda,
+                                     varBatchSize,
+                                     varIterMax,
+                                     W, K, D, 
+                                     alpha, eta, tau0, kappa, updatect
+                                   )
+
+    ignore=printm("M_updatedLambda", updatedLambda)
+    expectedUpdatedLambda = matrix("0.9712565299980254 1.0545998394749134 0.9174337845012629 0.9957686080384052 1.1031982854737363 1.1383736904958452 0.9108320185092539 1.0454152383604938 0.8469614162787922 1.0077979067415148", 
+                             rows=2, cols=5)
+    ignore=printm("M_expectedUpdatedLambda", expectedUpdatedLambda)
+    isequal = mequals(expectedUpdatedLambda, updatedLambda)
+    if (isequal == 1) {
+      print("**INFO** => Smoke test 2 passed")
+    }  else {
+      stop("**FATAL** => Smoke test 2 failed")
+    }
+    print("__________________________________")
+  }
+  
+
+}
+
 
 #@NOTE: in future, all the extra arguement will be reduced as we will have struct/class in system dml
 #@description: This will calculated the new updated Lambda which is the hyper parameter for the dirichlet distribution 'beta',
