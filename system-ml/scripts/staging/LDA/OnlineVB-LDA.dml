@@ -1,3 +1,105 @@
+# THIS SCRIPT SOLVES TOPIC MODELLING PROBLEM USING THE Online Variational Bayes Latent Dirichlet Allocation( Online_VB_LDA)
+#
+# ASSUMPTIONS:
+#   1) Individual docs are represented as the bag of words models.
+#   2) The input already been pre-processed i.e tokenization, stop word removable, stemming etc are done
+#       one of the ways we can find the vocabulary for the corpus is to use the tfi-df
+#   3) The each line in input corpus contains termVector
+#   
+# INPUT PARAMETERS:
+# convention: We group the params 
+#      is*  => flags and can have 1 or 0 only
+#      corpus* => all the params related the input corpus
+#      var* => all the params for the online variational algo.especially the top level controls
+#      em*  => all the params for the estimation of {phi,gamma} which we calculate using the E step of EM algo
+#      model* => all the params related to the end model
+# --------------------------------------------------------------------------------------------
+# NAME             TYPE     DEFAULT  MEANING
+# --------------------------------------------------------------------------------------------
+# corpusTermVecs   String    ---     Location (on HDFS) to read document term vector.each line 
+#                                    represents the doc and it's content is the id of word from doc in vocab                             
+# corpusTermCnts   String    ---     Location (on HDFS) to read term counts. Each line represents the doc
+#                                    and it's content is the count of the word whose id is in the termVecs
+# corpusMaxSize    Int       ---     Total number of documents in the population. For a fixed corpus,
+#                                    this is the size of the corpus. In the truly online setting, this
+#                                    can be an estimate of the maximum number of documents that could ever be seen.
+# corpusTopicsNum  Int       ---     Number of topics in the model (must remain constant in various run)
+# corpusVocabSize  Int       ---     Number of words in the vocabulary (must remain constain in various run)
+# isOnline         Int        1      Whether we want to run the online or the batch variational bayes LDA?
+#                                    Online VB mode, user must pass in the corpusBatchSize and kappa
+#                                    Batch VB mode , corpusBatchSize == corpusMax and kappa == 0 is assumed
+# isCheckInput     Int        0      Whether to do sanity checks on the corpus* params and contents?
+# debug            Int        0      Various debug level for Values and meanings are
+#                                    0 means no debug message
+#                                    >=3 means print out the internal iterations stats and info
+#                                    >=5 prints out the important matrixes and final model (if matrix cell counts <= 1e4)
+#                                    >=10 prints out he intermediate calculated matrix. Note that it won't print it if num of cells > 1e4
+# alpha            Double    1/corpusNumTopics     Dirichlet Hyperparameter for prior on doc' topic weight vectors theta
+# eta              Double    1/corpusNumTopics     Dirichlet Hyperparameter for prior on topics word weight (distribution) vector, beta
+# tau0             Int       1024    A (positive) learning parameter that downweights early iterations 
+# kappa            double    0.7     Learning rate: exponential decay rate---should be between
+#                                    (0.5, 1.0] to guarantee asymptotic convergence
+# modelInit        string    random  The following three modes are supported for the initialization of model 'Lambda'
+#                                       1) model : a fitted model from the previous run is provided which is used for initialization.
+#                                          This allows one to use this dml in truely online settings whether one can exit from the script.
+#                                       2) random : (default) random initialization of the model
+#                                       3) seeded : (not implemented yet) but we will have the random doc generator later and 
+#                                          this options will be use to generate docs and initial model are chosen from the 
+#                                          model calculation over the random docs
+# modelInitLoc     string    ---     The hdfs/local location for the initialization of model 'Lambda'. This options is used along with 
+#                                    modelInit=model and modelUpdateCount=<update_cnt>
+# modelUpdateCount Int        0      Useful for multi ran use case, this options is user along with modelInit=model and modelInitLocal=<hdfs_file>
+# modelOutLoc      string    model_updatedLambda.mtx The output hdfs/local file for storing the new/updated model 'Lambda'
+# modelUpdateCountOutLoc string model_updatedCount.mtx the output hdfs/local file to store the updated count of the number of batch finished.
+#                                                      Note:this is the 1x1 matrix
+# varBatchSize     Int       ---     Number of documents in the one batch of the online variational bayes LDA
+#                                    for the batch varionational bayes LDA, varBatchSize == corpusMax   
+# varIterMax       Int       100     The maximum number of iterations for the convergence of the model 'Lambda' computation
+# varTol           Double    0.005   The tolerance for the convergence when the relative change in model 'Lambda' <= varTol, the iterations stops
+# emIterMax        Int       100     The maximum number of iterations for the convergence of the E steps of EM for {phi,gamma} calc
+# emTol            Double    0.001   The tolerance for he convergence of the E steps of EM for {phi, gamma} calc
+#                                    The em iterations stops when the meanchange becomes <= emTol
+# ofmt             String    "text"  Matrix file output format, such as `text`,`mm`, or `csv` 
+# Log              String    " "     Location to store output and variables for monitoring and debugging purposes
+# 
+
+# --------------------------------------------------------------------------------------------
+# OUTPUT: Matrix of corpusTopicsNum x corpusVocabSize matrix of lambda which acts as the model. We also write 
+#     update count for the model so far
+#
+#
+# HOW TO INVOKE THIS SCRIPT - EXAMPLE:
+# Batch Mode:
+#   hadoop jar SystemML.jar -f onlineVB-LDA.dml -nvargs corpusTermVecs=term_ids.mtx corpusTermCnts=term_cnts.mtx corpusMaxSize=1000 corpusTopicsNum=50 corpusVocabSize=10000 varBatchSize=50 modelUpdateCount=0 varIterMax=100 isOnline=0 do_smoketest=0 debug=3
+# @TODO : add online example
+#
+# HOW TO EXPLORE CORPUS WITH POSTERIOR DISTRIBUTION
+# 1) Visualizing a topic: @TBD
+# 2) Visualizing a document: @TBD
+# 3) Finding Similar documents: @TBD
+#
+# SOME PRACTICAL CONSIDERATION FOR THE MODEL USAGES AND GENERATION AND APPLICATIONS
+# 1) Initialization and restarts: 
+#  1.1) Since this algorithm finds a local maximum of the variational objective function, initializing the 
+#     topics is important.Therefore, an effective initialization technique is to randomly chose a small number 
+#      (eg 1-5) of "seed" documents, create a distribution over words by smoothing their aggregatd word counts over 
+#      the whole vocabulary and from these counts computer a first value for E[log(beta(k,w))]. 
+#      @NOTE: that we provide the modelInit=model options to achieve the above.
+#  1.2) Also we can perform kind of model selection which best suits the result i.e the inference algo
+#       may be re-started multiple times, with different seed sets, to find a good local maxinum.
+#       @Note that in the online setting, we already sample the batch with replacement to simulate this
+#           for the batch run, we can follow this
+# 2) Choosing the vocabulary. It is often computationally expensise to use the entire vocabulary. Choosing the top 
+#    V words by TFIDF is an effective way to prune the vocabulary.This naturally prunes out stop words and 
+#    other terms that provides little thematic content to the documents.
+# 3) Choosing the number of topics: Choosing the number of topics is the persistent problem in topic modelling and 
+#    other latent variable analysis. In some cases, the number of topics is part of the pb formulation and specified 
+#    by an outside source. One way is to run the algo with various topics and pick up the one which provides the 
+#    best perplexity (geometric mean of inverse marginal probability of each word) on the held out data. thus providing
+#    some sort of model selection
+#    
+#  
+
 #@TODO: why parfor having pb for more than 1 doc? discuss with Matthias
 #@TODO: How do we set init seed for random number gen?
 #@TODO:make run method to run the top converging iteration
