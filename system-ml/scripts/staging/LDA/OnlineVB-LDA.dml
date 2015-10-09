@@ -1,4 +1,98 @@
 #@NOTE: in future, all the extra arguement will be reduced as we will have struct/class in system dml
+#@description: This will calculated the new updated Lambda which is the hyper parameter for the dirichlet distribution 'beta',
+#              which is KxW matrix and contains the info about each word for within each topic.This is the stats, 
+#              which describes the docs in the new batch and the docs observed so far. 
+#              This value can be saved in hdfs so as to use for next iteration, If needed
+#@input: see the function signature for details
+#@output: updatedGamma
+#         updatedLambda => The updated new Lambda as per description
+#          
+online_VB_LDA = function(
+  int isOnline, # 1->yes, 0->no
+  matrix[double] termVecs, # cell (i'th doc, j'th word) contains  (index in the vocab of j'th word in i'th docs)
+  matrix[double] termCnts, # cell (i'th doc, j'th word) contains  (count of j'th word in i'th docs)
+  matrix[double] Gamma,            # for testing only we pass 1x1 matrix
+  matrix[double] Lambda,           # past belief i.e sufficient-stats
+  int varBatchSize, # batch size to consider in the online mode
+  int varIterMax, # maximum number of iteration for the variational convergence
+  int W, # number of words in the vocab, should be constant over multiple run
+  int K, # number of topics , should be constain over multiple run
+  double corpusSize, # total number of documents expected ,@NOTE : it is different than the batchSize
+  double alpha, # dir parameter for topic distribution per doc of true distribution. #usually  = 1.0/K 
+  double eta, # dir parameter word distribution per topic. for the  = 1.0/K  # usually 1/K
+  double tau0, # A (positive) learning parameter that downweights early iterations 
+  double kappa, # Learing rate we choose 0.7 # must be [0.5, 1) 
+  int updatect
+) return (matrix[double] updatedGamma, matrix[double] updatedLambda, int newUpdateCnt) {
+  debug = debug()  
+  if (nrow(termVecs) != nrow(termCnts)) {
+    stop("number of docs in termVecs and termCnts doesn't match")
+  }
+  
+  #loop until we converge 
+  varTol = 5*1e-03 # @TODO get it from the user
+
+  
+  
+  docsSize = nrow(termVecs)
+
+  prevVarMeanTol = 0.001 
+  varMeanTol = 1.0
+
+  varIter = 1
+  #while (varMeanTol > varTol & varIter <= varIterMax) { 
+  while (varMeanTol > varTol & varIter <= varIterMax) { 
+   # being sample the termVecs,termCnts
+    if (isOnline == 1) {
+      batchDocsIds = sample(docsSize, varBatchSize, TRUE)
+      #ignore=printm("M_sampled_batchDocsIds", batchDocsIds) #DEBUG CODE @TODO bring in the iterations info
+      batchDocsWordIds = mrows(termVecs, batchDocsIds)
+      batchDocsWordCts = mrows(termCnts, batchDocsIds)
+    #end sample the termVecs,termCnts
+    } else {
+      batchDocsWordIds = termVecs
+      batchDocsWordCts = termCnts
+    }
+    # for each batch do it
+    # if user gives the default value, init the variation distribution q(theta|gamma), 
+    batchDocsSize = nrow(batchDocsWordIds) # total number of documents in this batch
+    if (nrow(Gamma) == 1 & ncol(Gamma) == 1) {  # we are passed the default Gamma and hence need to init it
+      Gamma = get_random_gamma(batchDocsSize, K)
+    }
+  
+    [updatedGamma, updatedLambda] = batch_variational_sufficient_stats(
+                                      batchDocsWordIds, batchDocsWordCts,
+                                      Gamma, Lambda,
+                                      W, K, corpusSize, 
+                                      alpha, eta, tau0, kappa, updatect
+                                    )
+
+  
+    # calculate the rekative improvement in Lambda
+    prevVarMeanTol = varMeanTol
+    # for next iteration set the values
+
+    varMeanTol=mean( abs(updatedLambda-Lambda) / Lambda)
+    print("**INFO** => OnlineVariationalBayes itertion = " + varIter
+           + "; Avg((Lambda(t)-Lambda(t-1))/Lambda(t-1)=" + varMeanTol)
+   
+
+   
+    Lambda = updatedLambda
+    updatect = updatect + 1
+    varIter = varIter + 1
+
+    if (debug >= 5) {
+      ignore=printm("M_updatedLambda", updatedLambda) #DEBUG CODE
+    }
+  }
+
+  newUpdateCnt = updatect
+  # end for each batch
+}
+
+
+#@NOTE: in future, all the extra arguement will be reduced as we will have struct/class in system dml
 #@description: find the batch of documents sufficient stats lambda.
 #              It first calculate the sufficient stats for all the docs in the batch and aggregate/merge the batchLambda
 #              which is the sufficient stats for the batch.  The new updated lambda is weighted average of the 
