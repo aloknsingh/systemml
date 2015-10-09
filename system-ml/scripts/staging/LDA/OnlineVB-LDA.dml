@@ -1,3 +1,15 @@
+#@TODO: why parfor having pb for more than 1 doc? discuss with Matthias
+#@TODO: How do we set init seed for random number gen?
+#@TODO:make run method to run the top converging iteration
+do_smoketest = ifdef($do_smoketest, 0)
+
+if (do_smoketest == 0) {
+  ignore=main()
+} else {
+  ignore=smoketest_online_VB_LDA()
+}
+
+
 # main code
 # user can run it in three initialization mode
 #      model : a fitted model from the previous run is provided which is used for initialization
