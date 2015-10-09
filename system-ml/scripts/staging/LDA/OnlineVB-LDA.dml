@@ -1,3 +1,118 @@
+#@NOTE: in future, all the extra arguement will be reduced as we will have struct/class in system dml
+#@description: find the batch of documents sufficient stats lambda.
+#              It first calculate the sufficient stats for all the docs in the batch and aggregate/merge the batchLambda
+#              which is the sufficient stats for the batch.  The new updated lambda is weighted average of the 
+#              older lambda and the batch's lambda.
+#@output: the variational sufficient stats i.e new upDatedGamma and new updatedLambda
+batch_variational_sufficient_stats = function(
+  matrix[double] batchDocsWordIds, # the batchDocsXdocsId matrix
+  matrix[double] batchDocsWordCts, # thebatchDocsXwordCnts matrix
+  matrix[double] Gamma,
+  matrix[double] Lambda,
+  int W, # number of words in the vocab
+  int K, # number of topics
+  double corpusSize, # total number of documents
+  double alpha, # dir parameter for topic distribution per doc of true distribution. #usually  = 1.0/K 
+  double eta, # dir parameter word distribution per topic. for the  = 1.0/K  # usually 1/K
+  double tau0, # A (positive) learning parameter that downweights early iterations 
+  double kappa, # Learing rate we choose 0.7 # must be [0.5, 1) 
+  double updatect
+) return (matrix[double] updatedGamma, matrix[double] updatedLambda) {
+  debug = debug()  
+  if (nrow(batchDocsWordIds) != nrow(batchDocsWordCts)) {
+    stop("batchDocsWordIds and batchDocsWordCts much match")
+  }
+  batchDocsSize = nrow(batchDocsWordIds) # total number of documents in this batch
+
+  
+  [Elogbeta, expElogbeta] = dirichlet_expected_loglikelihood(Lambda)
+  
+
+  
+# begin variational bayes
+  
+
+  batchDocsSStats = matrix(0.0, rows=K, cols=W)
+  batchDocsSStats3Dto2D = matrix(0.0, rows=K*W, cols=batchDocsSize)
+  #init the variation distribution q(theta|gamma)
+  gamma = Gamma
+  
+  #ignore=printm("M_gamma", gamma)
+  # do all the E steps in parallel par
+  for (docId in 1:batchDocsSize, check=0) {
+    #ids = wordids[d,]
+    #cts = wordcts[d,]
+    #note that we work with column vectors so we need extra tranpose. Hopefully compiler optimizer will take care of this
+    docWordIds = t(batchDocsWordIds[docId,])
+    docWordCts = t(batchDocsWordCts[docId,])
+    gammad = gamma[docId, ]
+    
+    [docGamma, docSStatsCompact] = doc_variational_sufficient_stats(
+                                     docWordIds, docWordCts, 
+                                     gammad, expElogbeta, 
+                                     alpha, K,
+                                     updatect,
+                                     docId
+                                   )
+                      
+    gamma[docId,] = docGamma
+   
+    # since sstatsd is not aligned wrt the KXW matrix aligned it
+    docSStats = maligncols(docSStatsCompact, docWordIds, W, "cols")
+    #@NOTE, @TODO: 1) discuss with team, if we want to support the aggregate in the parfor loop
+    docSStats1D = matrix(docSStats, rows=K*W, cols=1)
+    cw = ncol(docSStats1D) 
+    # note the following line can be simplify since cw == 1, but keeping it for the purpose of explaination
+    batchDocsSStats3Dto2D[,(docId-1)*cw+1:docId*cw] = docSStats1D
+    #batchDocsSStats3Dto2D[,(docId-1)+1:docId] = docSStats1D
+
+    if (debug >= 10) {
+      print("**DEBUG** => [Level="+debug+"] begin docId="+docId+" Sufficient Stats")
+      ignore=printm("M_docSStats", docSStats) 
+      print("**DEBUG** => [Level="+debug+"] end docId="+docId+" Sufficient Stats")
+    }
+    
+  }
+  updatedGamma = gamma # output
+  batchDocsSStats=matrix(rowSums(batchDocsSStats3Dto2D), rows=K, cols=W)
+
+  # M steps
+  # Maximize the resulting lower bound
+  batchDocsSStats = batchDocsSStats * expElogbeta
+  
+  # rhot = [0,1]  and says how much weight we want to give to the mini batch
+  # note 
+  #  - 1) that at it is exponential in nature to the updatect which is the number of batches we process. 
+  #       so it is giving more weight to the prior lambda. 
+  #  - 2) when kappa == 0, then it reduces to 1 meaning , we give 100% weight to the last batch and 0 to the previous stats and it is not likely to converge
+  #  - 3) when kappa == 1, then it reduces to simple weighted average
+  #  - 3) usually kappa is (0.5, 1) and we choose 0.7, it that case it will converge
+  rhot = (tau0  + updatect)^-kappa
+
+  # Lambda batch is the controbution to the direchlet variational hyper parameter lambda by this batch of docs
+  LambdaBatch = eta + batchDocsSStats*corpusSize/batchDocsSize
+ 
+  # calculate the new weighted direchlet variational hyper parameter lambda on the older lambda and the batch lambda
+  # since 0 < rhot < 1, we can view the newLambda as the comvex combination of oldLambda and batchLambda for each batch.
+  # geometrically, we can view this as refining the convex hull of Lambda in every update. Since rhot is more closer to 0
+  # each new batch contribition is comparatively small.
+  # note that is nice to compare the following result with the MAP vs ML estimates. LambdaBatch is the current observations
+  # and Lamda is the prior and since prior is a collection of all the numerous docs stats so far, we expect it to give more 
+  # weights and hence rhot usually close to small number (i.e zero)
+  updatedLambda = Lambda * (1-rhot) + LambdaBatch*rhot
+  
+
+  if (debug >= 10) { #@TODO may be we can write to the disk/hdfs
+    print("**DEBUG** => [Level="+debug+"] begin Model Lambda at update Count="+updatect)
+    ignore=printm("M_batchDocsSStats3Dto2D", batchDocsSStats3Dto2D) #DEBUG CODE
+    ignore=printm("M_batchDocsSStats_2", batchDocsSStats) #DEBUG CODE
+    ignore=printm("M_LambdaBatch", LambdaBatch) #DEBUG CODE
+    ignore=printm("M_updatedLambda", updatedLambda) #DEBUG CODE
+    print("**DEBUG** => [Level="+debug+"] end Model Lambda at update Count="+updatect)
+  }
+  
+  
+}
 
 #@description: find the topic variational param i.e gamma for the doc, which is represented by termVector and 
 #              term counts. 
