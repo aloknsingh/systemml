@@ -1,4 +1,81 @@
 
+#@description: find the topic variational param i.e gamma for the doc, which is represented by termVector and 
+#              term counts. 
+#              NOTE:An optimization (Lee, Seung: Algorithms for non-negative matrix factorization, NIPS 2001)
+#              avoids explicit computation of variational parameter `phi`. in the E steps
+#@output: the variational parameters {gamma, sstats}
+#          sstats = function(constant(expElogbeta), termCntVector, phi)
+doc_variational_sufficient_stats = function(
+  matrix[double] termVector,
+  matrix[double] termCounts,
+  matrix[double] gammad,
+  matrix[double] expElogbeta,
+  double alpha,
+  int K, # size of the topics
+  int updatect,  # for debug msg
+  int docId      #for debug msg
+) return (matrix[double] updatedGammad, matrix[double] sstatsd) {
+  debug = debug()  
+  # begin variational bayes
+  ids = termVector
+  cts = termCounts
+  
+  [Elogthetad, expElogthetad] = dirichlet_expected_loglikelihood(gammad)
+  #ignore = printm("M_Elogthetad", Elogthetad); ignore = printm("M_expElogthetad", expElogthetad) #DEBUG CODE
+  
+  expElogbetad = mcols(expElogbeta, ids)
+  #ignore = printm("M_expElogbetad", expElogbetad ) # DEBUG CODE
+  phiNorm = mdot(t(expElogthetad), expElogbetad)
+  phiNorm = phiNorm + 1e-100 # to account for the zero dot product
+  #ignore = printm("M_phiNorm", phiNorm) #DEBUG CODE
+
+  # do the EM steps. Iterate between gamma and phi until convergence
+  meanchange = 0
+  #@TODO: do we need to pass from user? for now we will not and after discussion we will decide.
+  meanchangethresh = 1e-03 # @TODO get it from user
+  #@TODO: do we need to pass from user? for now we will not and after discussion we will decide.
+  e_max_it = 100 # should be 100 @TODO get it from user
+
+  
+  meanchange = 1.0  
+  e_it = 1
+  while (meanchange > meanchangethresh & e_it <= e_max_it) { 
+    # store the last result to calculate the mean change
+    lastgammad = gammad
+   
+    #we represent phi implicitly to save memory and time. 
+    tmp_gammad = mdot(t(t(cts)/phiNorm), t(expElogbetad))
+    gammad = alpha + expElogthetad*(tmp_gammad)
+    #ignore=printm("M gammad at it ", gammad) #DEBUG CODE
+
+    [Elogthetad, expElogthetad] = dirichlet_expected_loglikelihood(gammad)
+    #ignore=printm("M_etd1", Elogthetad);ignore=printm("M_eetd1", expElogthetad) #DEBUG CODE
+    phiNorm=mdot(t(expElogthetad), expElogbetad)
+    #ignore = printm("M_pn1", phiNorm) #DEBUG CODE
+
+    meanchange=mean(abs(gammad-lastgammad))
+    #print("meanchange="+meanchange) # DEBUG CODE
+    if (debug >= 3) {
+      print ("**INFO** => "
+               + "updateCount=" + updatect + ";"
+               + "docId=" + docId + ";"
+               + "Gamma Iteration Id = " + e_it + ";"
+               + "meanchange = " + meanchange);
+    }
+
+    e_it = e_it + 1 
+  }
+  #return the sufficient stats for a doc
+  updatedGammad = gammad 
+  sstatsd = outer(t(expElogthetad), t(cts)/phiNorm, "*")
+  if (debug >= 10) {
+    ignore=printm("M_doc_variational_sufficient_stats:gammad", updatedGammad)
+    ignore=printm("M_doc_variational_sufficient_stats:sstatsd", sstatsd)
+  }
+#end of variational topic_inference
+}
+
+
 # @assumption, we assume that the vectors are represented as the columns
 # @ref https://www.cs.princeton.edu/~blei/papers/BleiNgJordan2003.pdf Appendix A.1
 # @description: the special property of the expected value of log of dirichlet distribution is 
