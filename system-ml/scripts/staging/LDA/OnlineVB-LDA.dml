@@ -1,3 +1,137 @@
+# main code
+# user can run it in three initialization mode
+#      model : a fitted model from the previous run is provided which is used for initialization
+#      random : (default) random initialization of the fitted model
+#      seeded : (not implemented yet) but we will have the random doc generator later and this options will be use to generate docs and initial model are chosen from the 
+#               model calculation over the random docs
+# the following use cases
+#  1) batch variaional bayes LDA
+#         1.1) in that case batch size is equal to the total corpus size and
+#         1.2) kappa = 0
+#  2) online variational bayes LDA
+#         2.1) we handle one batch of S documents at one time. and output new lambda i.e the model
+#         
+
+main = function() return() {
+  print("Starting Topic modelling...") 
+  debug = debug()   
+  D = $corpusMaxSize # total number of maximum documents for online settings .. documents #@TODO take it from user options
+  K = $corpusTopicsNum
+  W = $corpusVocabSize
+  isOnline = ifdef($isOnline, 1)
+  alpha = ifdef($alpha, 1.0/K) 
+  eta = ifdef($eta, 1.0/K)  # usually 1/K
+  tau0 = ifdef($tau0, 1024)
+  tau0 = tau0 + 1 # case when the user passes in 0
+  kappa = ifdef($kappa, 0.7) # must be (0.5, 1]
+  varBatchSize = $varBatchSize  # default batchSize is 
+  Log = ifdef($Log, " ")
+  varIterMax = ifdef($varIterMax, 100)
+  isCheckInput = ifdef($isCheckInput, 0)
+  modelInit = ifdef($modelInit, "random")
+  outModelLoc = ifdef($modelOutLoc, "model_updatedLambda.mtx")
+  outModelUpdateCountLoc = ifdef($modelUpdateCountOutLoc, "model_updatedCount.mtx")
+  
+  # read the input termVecs
+  termVecs = read($corpusTermVecs)
+  termCnts = read($corpusTermCnts)
+
+  # some error checking
+  # check the topic counts
+  if (K <= 1) {
+     stop("**FATAL** => Number of topics should be greater than 1")
+  }
+  # check the learning parameter kappa
+  if (isOnline != 0 & (kappa <= 0.5 | kappa > 1)) {
+     stop("**FATAL** => kappa: The online Learning rate/exponential decay should be in (0.5,1] is needed to gurantee convergence")
+  }
+
+  if (isOnline == 0) { # batch mode
+    print("**WARN** => batch mode is enabled. we will default kappa == 0 and batchSize == number of docs in termCnts")
+    kappa = 0
+    varBatchSize = nrow(termCnts)
+  } 
+
+  # check and init the updatect and lambda
+  updatect = 0
+  #Init the variational distribution q(beta|lambda) # get or read the Lambda
+  if (modelInit == "random") {
+     Lambda = get_random_gamma(K, W)
+  } else if (modelInit == "model") {
+     model= ifdef($modelInitLoc, "unknown") #@TODO change to if else
+     print("**INFO** => reading the model initialization file") 
+     Lambda = read(model)
+     updatect = $modelUpdateCount # the past batch counts is necessay in the model initialization
+  } else if (modelInit == "seeded") {
+     stop("**ERROR** => Seeded mode is not supported yet")
+  } else {
+     stop("**FATAL** => modelInit can be only {'random', 'model', 'seeded'}")
+  }
+  
+
+  if (varBatchSize > nrow(termCnts)) {
+     stop("**FATAL** => batch size can't be greater than number of documents")
+  }
+
+  
+  # check the inputs if asked
+  #@NOTE: this is usefule when systemML says a complicated bug but could be the bad data and hence it is worth checking it
+  if (isCheckInput == 1) {
+    if (nrow(termVecs) != nrow(termCnts)) {
+       stop("**FATAL** => documents termVecs and termCts doesn't match")
+    }
+     # check that the words contains the 
+     if (max(termVecs) > W) {
+       stop("**FATAL** => documents contains word ids not in the vobabulary")
+     }
+     # make sure that the input data contains all the ids and counts
+     isMissingIds = sum(ppred(rowSums(ppred(termVecs, 0, ">=")), W, "!="))
+    
+     isMissingCts=sum(ppred(rowSums(ppred(termCnts, 0, ">=")), W, "!="))
+    
+     if (isMissingIds != 0) {
+       stop("**FATAL** => documents contains missing word ids")
+     }
+     if (isMissingCts != 0) {
+       stop("**FATAL** => documents contains missing word counts")
+     }
+  }
+
+
+
+
+
+  # # sample the matrix
+  # docsSize = nrow(termVecs)
+  # batchDocsIds = sample(docsSize, varBatchSize, TRUE)
+  # #ignore=printm("M_sampled_batchDocsIds", batchDocsIds) #DEBUG CODE @TODO bring in the iterations info
+  
+  # batchDocsWordIds = mrows(termVecs, batchDocsIds)
+  # batchDocsWordCts = mrows(termCnts, batchDocsIds)
+
+  # 
+  # pass in the arbitarty 1,1 matrix so that the downstream code will create it's own random matrix from gamma distribution. This hack is there for debugging
+  Gamma = matrix(0.5, rows=1, cols=1)
+  
+  [updatedGamma, updatedLambda, newUpdateCt] = online_VB_LDA(
+                                    isOnline,
+                                    termVecs, termCnts,
+                                    Gamma, Lambda,
+                                    varBatchSize,
+                                    varIterMax,  
+                                    W, K, D, 
+                                    alpha, eta, tau0, kappa, updatect
+                                  )
+
+  # write the output model
+  write(updatedLambda, outModelLoc)
+
+  #write the final modelUpdateCount
+  write(newUpdateCt, outModelUpdateCountLoc)
+  print("Ending topic modelling")
+}
+
+
 #@NOTE: in future, all the extra arguement will be reduced as we will have struct/class in system dml
 #@description: This will calculated the new updated Lambda which is the hyper parameter for the dirichlet distribution 'beta',
 #              which is KxW matrix and contains the info about each word for within each topic.This is the stats, 
