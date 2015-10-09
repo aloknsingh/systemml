@@ -111,6 +111,9 @@ if (do_smoketest == 0) {
   ignore=smoketest_online_VB_LDA()
 }
 
+# debug flags. indicating the various levels of debug
+debug = function() return(int level) { level = ifdef($debug, 0);}  
+
 
 # main code
 # user can run it in three initialization mode
